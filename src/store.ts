@@ -82,14 +82,18 @@ export const approvalStore = {
   },
 };
 
-// --- Per-user selected agent: chosen via /agent buttons, used by /objectif. ---
-const selectedAgents = new Map<string, { id: string; name: string }>();
+// --- Pending objective: set by /objectif, consumed when the user clicks an
+// agent button to launch. One in-flight objective per user. ---
+const pendingObjectives = new Map<string, { text: string; channelId: string }>();
 
-export const agentSelection = {
-  set(userId: string, agent: { id: string; name: string }) {
-    selectedAgents.set(userId, agent);
+export const pendingObjective = {
+  set(userId: string, p: { text: string; channelId: string }) {
+    pendingObjectives.set(userId, p);
   },
-  get(userId: string): { id: string; name: string } | undefined {
-    return selectedAgents.get(userId);
+  /** Consume once: returns the pending objective and clears it. */
+  take(userId: string): { text: string; channelId: string } | undefined {
+    const p = pendingObjectives.get(userId);
+    if (p) pendingObjectives.delete(userId);
+    return p;
   },
 };

@@ -5,13 +5,14 @@ import {
   type ButtonInteraction,
 } from "discord.js";
 import { backend } from "../backend.ts";
-import { agentSelection, approvalStore } from "../store.ts";
+import { approvalStore, pendingObjective, store } from "../store.ts";
 import { logger } from "../logger.ts";
-import { decisionEmbed } from "./embeds.ts";
+import { subscribeJob } from "../jobstream.ts";
+import { decisionEmbed, jobEmbed } from "./embeds.ts";
 
 /**
  * Handles button clicks. customId formats:
- *   - "agent:<id>"            — pick the agent to use for /objectif
+ *   - "launch:<agentId>"      — launch the pending /objectif with this agent
  *   - "approve:<approvalId>"  — human-in-the-loop validation
  *   - "reject:<approvalId>"
  */
@@ -19,8 +20,9 @@ export async function handleButton(interaction: ButtonInteraction) {
   const sep = interaction.customId.indexOf(":");
   const action = sep >= 0 ? interaction.customId.slice(0, sep) : interaction.customId;
   const value = sep >= 0 ? interaction.customId.slice(sep + 1) : "";
+  logger.info("Button clicked", { action, value, user: interaction.user.tag });
 
-  if (action === "agent") return handleAgentPick(interaction, value);
+  if (action === "launch") return handleLaunch(interaction, value);
   if ((action !== "approve" && action !== "reject") || !value) return;
   const approvalId = value;
 
@@ -77,15 +79,48 @@ export async function handleButton(interaction: ButtonInteraction) {
   logger.info("Approval decided", { approvalId, jobId: req.jobId, approved, by });
 }
 
-/** Store the picked agent for this user (name read from the clicked button). */
-async function handleAgentPick(interaction: ButtonInteraction, agentId: string) {
+/**
+ * Launch the user's pending objective with the clicked agent. The clicked
+ * message (the /objectif reply) becomes the live timeline embed.
+ */
+async function handleLaunch(interaction: ButtonInteraction, agentId: string) {
   if (!agentId) return;
   const comp = interaction.component;
   const name = ("label" in comp && comp.label) || agentId;
-  agentSelection.set(interaction.user.id, { id: agentId, name });
-  logger.info("Agent selected", { agentId, by: interaction.user.tag });
-  await interaction.reply({
-    content: `✅ Agent sélectionné : **${name}**.\nLance maintenant \`/objectif\` avec ce que tu veux faire.`,
-    ephemeral: true,
+
+  const pending = pendingObjective.take(interaction.user.id);
+  if (!pending) {
+    await interaction.reply({
+      content: "⚠️ Aucun objectif en attente (session expirée). Relance `/objectif`.",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  await interaction.deferUpdate();
+
+  const res = await backend.createObjective({
+    agent_id: agentId,
+    title: pending.text.slice(0, 80),
+    prompt: pending.text,
   });
+  if (!res.ok) {
+    await interaction.editReply({
+      content: `⚠️ Impossible de lancer l'objectif : ${res.error}.`,
+      components: [],
+    });
+    return;
+  }
+
+  const jobId = res.data.job_id;
+  // Reuse THIS message (the /objectif reply) as the living timeline.
+  const job = store.create(jobId, pending.text, pending.channelId, interaction.message.id);
+  await interaction.editReply({
+    content: `🚀 Lancé avec l'agent **${name}**`,
+    embeds: [jobEmbed(job)],
+    components: [],
+  });
+
+  subscribeJob(interaction.client, jobId);
+  logger.info("Objective launched", { jobId, agentId, by: interaction.user.tag });
 }

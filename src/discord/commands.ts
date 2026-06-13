@@ -3,26 +3,21 @@ import {
   type ChatInputCommandInteraction,
 } from "discord.js";
 import { backend } from "../backend.ts";
-import { agentSelection, store } from "../store.ts";
+import { pendingObjective } from "../store.ts";
 import { logger } from "../logger.ts";
-import { subscribeJob } from "../jobstream.ts";
 import { JobStatus, type Agent } from "../types.ts";
 import {
   agentPickerComponents,
   agentsEmbed,
   jobDetailEmbed,
-  jobEmbed,
   jobsListEmbed,
 } from "./embeds.ts";
 
 /** Slash command definitions — exported as JSON for the register script. */
 export const commandData = [
   new SlashCommandBuilder()
-    .setName("agent")
-    .setDescription("Choisis l'agent à utiliser (boutons)"),
-  new SlashCommandBuilder()
     .setName("objectif")
-    .setDescription("Lance un objectif avec l'agent choisi (via /agent)")
+    .setDescription("Lance un objectif : tu écris, puis tu choisis l'agent (boutons)")
     .addStringOption((o) =>
       o.setName("texte").setDescription("Ce que tu veux que l'agent fasse").setRequired(true),
     ),
@@ -51,7 +46,7 @@ export const commandData = [
   new SlashCommandBuilder().setName("ping").setDescription("Santé du bot + ping backend"),
 ].map((c) => c.toJSON());
 
-// Short-lived agent cache so /agent renders fast without hammering the backend.
+// Short-lived agent cache so /objectif renders the picker fast.
 let agentsCache: { at: number; agents: Agent[] } | null = null;
 const AGENTS_TTL_MS = 30_000;
 
@@ -66,11 +61,10 @@ async function getAgents(): Promise<Agent[]> {
 
 /** Dispatch a chat-input command. Each handler degrades gracefully on error. */
 export async function handleCommand(interaction: ChatInputCommandInteraction) {
+  logger.info("Command received", { command: interaction.commandName, user: interaction.user.tag });
   switch (interaction.commandName) {
     case "ping":
       return handlePing(interaction);
-    case "agent":
-      return handleAgent(interaction);
     case "objectif":
       return handleObjectif(interaction);
     case "agents":
@@ -100,63 +94,27 @@ async function handlePing(interaction: ChatInputCommandInteraction) {
   });
 }
 
-/** /agent — posts one button per agent; the click sets the user's selection. */
-async function handleAgent(interaction: ChatInputCommandInteraction) {
-  await interaction.deferReply({ ephemeral: true });
-  const agents = await getAgents();
-  if (agents.length === 0) {
-    await interaction.editReply("⚠️ Aucun agent disponible côté backend.");
-    return;
-  }
-  const current = agentSelection.get(interaction.user.id);
-  await interaction.editReply({
-    content:
-      `🤖 **Choisis l'agent** à utiliser, puis lance \`/objectif\`.` +
-      (current ? `\n_Agent actuel : **${current.name}**_` : ""),
-    components: agentPickerComponents(agents),
-  });
-}
-
+/**
+ * /objectif <texte> — store the objective, then show one button per agent.
+ * Clicking a button launches the job with that agent (see interactions.ts).
+ */
 async function handleObjectif(interaction: ChatInputCommandInteraction) {
   const objective = interaction.options.getString("texte", true);
-  const channelId = interaction.channelId;
-
-  const selected = agentSelection.get(interaction.user.id);
-  if (!selected) {
-    await interaction.reply({
-      content: "⚠️ Choisis d'abord un agent avec **/agent**, puis relance `/objectif`.",
-      ephemeral: true,
-    });
-    return;
-  }
-
   await interaction.deferReply();
 
-  const res = await backend.createObjective({
-    agent_id: selected.id,
-    title: objective.slice(0, 80),
-    prompt: objective,
-  });
-  if (!res.ok) {
-    await interaction.editReply(
-      `⚠️ Impossible de lancer l'objectif : ${res.error}. Le backend est peut-être indisponible.`,
-    );
+  const agents = await getAgents();
+  logger.info("Objectif: agents fetched", { count: agents.length });
+  if (agents.length === 0) {
+    await interaction.editReply("⚠️ Aucun agent disponible côté backend. Crée-en un d'abord.");
     return;
   }
 
-  const jobId = res.data.job_id;
-  // Seed the local timeline, post the living message, then record its id.
-  const job = store.create(jobId, objective, channelId, "");
-  const message = await interaction.editReply({
-    content: `🚀 Lancé avec l'agent **${selected.name}**`,
-    embeds: [jobEmbed(job)],
-  });
-  job.messageId = message.id;
+  pendingObjective.set(interaction.user.id, { text: objective, channelId: interaction.channelId });
 
-  // Subscribe to the SSE stream: events will edit this message, post approval
-  // buttons, and deliver the final report.
-  subscribeJob(interaction.client, jobId);
-  logger.info("Objective created", { jobId, agentId: selected.id });
+  await interaction.editReply({
+    content: `🎯 **${objective.slice(0, 200)}**\n\nChoisis l'agent qui va s'en charger 👇`,
+    components: agentPickerComponents(agents, "launch"),
+  });
 }
 
 async function handleAgents(interaction: ChatInputCommandInteraction) {
@@ -177,7 +135,6 @@ async function handleJobs(interaction: ChatInputCommandInteraction) {
     await interaction.editReply(`⚠️ Impossible de récupérer les jobs : ${res.error}`);
     return;
   }
-  // The backend has no status filter param, so filter client-side.
   const filtered =
     statut && JobStatus.safeParse(statut).success
       ? res.data.filter((j) => j.status === statut)
