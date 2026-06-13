@@ -20,15 +20,16 @@ export const commandData = [
   new SlashCommandBuilder()
     .setName("objectif")
     .setDescription("Lance un objectif confié à un agent autonome")
-    .addStringOption((o) =>
-      o.setName("texte").setDescription("L'objectif à atteindre").setRequired(true),
-    )
+    // Agent first (required, autocomplete): on choisit l'agent, puis on écrit.
     .addStringOption((o) =>
       o
         .setName("agent")
-        .setDescription("Agent à utiliser (laisse vide pour un choix automatique)")
-        .setRequired(false)
+        .setDescription("Choisis l'agent")
+        .setRequired(true)
         .setAutocomplete(true),
+    )
+    .addStringOption((o) =>
+      o.setName("texte").setDescription("Ce que tu veux que l'agent fasse").setRequired(true),
     ),
   new SlashCommandBuilder().setName("agents").setDescription("Liste les agents disponibles"),
   new SlashCommandBuilder()
@@ -119,30 +120,11 @@ async function handlePing(interaction: ChatInputCommandInteraction) {
 }
 
 async function handleObjectif(interaction: ChatInputCommandInteraction) {
+  const agentId = interaction.options.getString("agent", true);
   const objective = interaction.options.getString("texte", true);
-  let agentId = interaction.options.getString("agent") ?? undefined;
   const channelId = interaction.channelId;
 
   await interaction.deferReply();
-
-  // agent_id is required by the backend. If the user didn't pick one, choose a
-  // sensible default — prefer an agent that asks for approval so the demo shows
-  // the human-in-the-loop moment.
-  if (!agentId) {
-    const agentsRes = await backend.listAgents();
-    if (!agentsRes.ok || agentsRes.data.length === 0) {
-      await interaction.editReply(
-        agentsRes.ok
-          ? "⚠️ Aucun agent disponible côté backend. Crée-en un d'abord."
-          : `⚠️ Impossible de récupérer les agents : ${agentsRes.error}`,
-      );
-      return;
-    }
-    const preferred =
-      agentsRes.data.find((a) => a.autonomy_level === "confirm_before_action") ?? agentsRes.data[0]!;
-    agentId = preferred.id;
-    logger.info("Auto-selected agent", { agentId, autonomy: preferred.autonomy_level });
-  }
 
   const res = await backend.createObjective({
     agent_id: agentId,
