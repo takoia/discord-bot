@@ -5,6 +5,8 @@ import {
 import { backend } from "../backend.ts";
 import { store } from "../store.ts";
 import { logger } from "../logger.ts";
+import { subscribeJob } from "../jobstream.ts";
+import { JobStatus } from "../types.ts";
 import {
   agentsEmbed,
   jobDetailEmbed,
@@ -21,7 +23,7 @@ export const commandData = [
       o.setName("texte").setDescription("L'objectif à atteindre").setRequired(true),
     )
     .addStringOption((o) =>
-      o.setName("agent").setDescription("ID de l'agent (optionnel)").setRequired(false),
+      o.setName("agent").setDescription("ID de l'agent (sinon: choisi automatiquement)").setRequired(false),
     ),
   new SlashCommandBuilder().setName("agents").setDescription("Liste les agents disponibles"),
   new SlashCommandBuilder()
@@ -34,7 +36,7 @@ export const commandData = [
         .setRequired(false)
         .addChoices(
           { name: "en cours", value: "running" },
-          { name: "attente validation", value: "waiting_approval" },
+          { name: "attente validation", value: "awaiting_approval" },
           { name: "terminé", value: "done" },
           { name: "échec", value: "failed" },
         ),
@@ -84,12 +86,35 @@ async function handlePing(interaction: ChatInputCommandInteraction) {
 
 async function handleObjectif(interaction: ChatInputCommandInteraction) {
   const objective = interaction.options.getString("texte", true);
-  const agentId = interaction.options.getString("agent") ?? undefined;
+  let agentId = interaction.options.getString("agent") ?? undefined;
   const channelId = interaction.channelId;
 
   await interaction.deferReply();
 
-  const res = await backend.createObjective({ objective, agentId, channelId });
+  // agent_id is required by the backend. If the user didn't pick one, choose a
+  // sensible default — prefer an agent that asks for approval so the demo shows
+  // the human-in-the-loop moment.
+  if (!agentId) {
+    const agentsRes = await backend.listAgents();
+    if (!agentsRes.ok || agentsRes.data.length === 0) {
+      await interaction.editReply(
+        agentsRes.ok
+          ? "⚠️ Aucun agent disponible côté backend. Crée-en un d'abord."
+          : `⚠️ Impossible de récupérer les agents : ${agentsRes.error}`,
+      );
+      return;
+    }
+    const preferred =
+      agentsRes.data.find((a) => a.autonomy_level === "confirm_before_action") ?? agentsRes.data[0]!;
+    agentId = preferred.id;
+    logger.info("Auto-selected agent", { agentId, autonomy: preferred.autonomy_level });
+  }
+
+  const res = await backend.createObjective({
+    agent_id: agentId,
+    title: objective.slice(0, 80),
+    prompt: objective,
+  });
   if (!res.ok) {
     await interaction.editReply(
       `⚠️ Impossible de lancer l'objectif : ${res.error}. Le backend est peut-être indisponible.`,
@@ -97,13 +122,15 @@ async function handleObjectif(interaction: ChatInputCommandInteraction) {
     return;
   }
 
-  const jobId = res.data.id;
+  const jobId = res.data.job_id;
   // Seed the local timeline, post the living message, then record its id.
-  // store.create returns the live object held in the map, so mutating it here
-  // is what the incoming /events handler will later update.
   const job = store.create(jobId, objective, channelId, "");
   const message = await interaction.editReply({ embeds: [jobEmbed(job)] });
   job.messageId = message.id;
+
+  // Subscribe to the SSE stream: events will edit this message, post approval
+  // buttons, and deliver the final report.
+  subscribeJob(interaction.client, jobId);
   logger.info("Objective created", { jobId, agentId });
 }
 
@@ -120,12 +147,17 @@ async function handleAgents(interaction: ChatInputCommandInteraction) {
 async function handleJobs(interaction: ChatInputCommandInteraction) {
   const statut = interaction.options.getString("statut") ?? undefined;
   await interaction.deferReply();
-  const res = await backend.listJobs(statut);
+  const res = await backend.listJobs();
   if (!res.ok) {
     await interaction.editReply(`⚠️ Impossible de récupérer les jobs : ${res.error}`);
     return;
   }
-  await interaction.editReply({ embeds: [jobsListEmbed(res.data)] });
+  // The backend has no status filter param, so filter client-side.
+  const filtered =
+    statut && JobStatus.safeParse(statut).success
+      ? res.data.filter((j) => j.status === statut)
+      : res.data;
+  await interaction.editReply({ embeds: [jobsListEmbed(filtered)] });
 }
 
 async function handleStatus(interaction: ChatInputCommandInteraction) {

@@ -1,19 +1,15 @@
 import { config } from "./config.ts";
 import { logger } from "./logger.ts";
-import { client, startBot } from "./discord/client.ts";
-import { startHttpServer } from "./server/http.ts";
+import { startBot } from "./discord/client.ts";
 
 /**
- * Entrypoint: log the bot in, then start the HTTP server that receives
- * backend events. Order matters — the HTTP handlers need a ready client.
+ * Entrypoint: log the bot in. Live job progress is consumed from core-backend's
+ * SSE stream per job (see jobstream.ts), so the bot needs no inbound server.
  */
 async function main() {
-  logger.info("Starting Takoia Discord bot…", { backend: config.BACKEND_URL, port: config.PORT });
-
+  logger.info("Starting Takoia Discord bot…", { backend: config.BACKEND_URL });
   await startBot();
-  startHttpServer(client);
-
-  logger.info("Bot is up. Waiting for commands and backend events.");
+  logger.info("Bot is up. Waiting for commands; job progress streamed via SSE.");
 }
 
 main().catch((err) => {

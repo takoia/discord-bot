@@ -10,8 +10,9 @@ const EnvSchema = z.object({
   DISCORD_CLIENT_ID: z.string().min(1, "DISCORD_CLIENT_ID is required"),
   GUILD_ID: z.string().optional().default(""),
   BACKEND_URL: z.string().url("BACKEND_URL must be a valid URL"),
-  SHARED_SECRET: z.string().min(1, "SHARED_SECRET is required"),
-  PORT: z.coerce.number().int().positive().default(3000),
+  // Optional: the MVP backend is unauthenticated. If set, the bot sends it as a
+  // Bearer on REST + SSE calls (forward-compatible).
+  SHARED_SECRET: z.string().optional().default(""),
 });
 
 const parsed = EnvSchema.safeParse(process.env);

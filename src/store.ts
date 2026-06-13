@@ -1,4 +1,4 @@
-import type { StepName, StepStatus, JobStatus, ApprovalRequest } from "./types.ts";
+import type { StepName, StepStatus, JobStatus, ApprovalInfo } from "./types.ts";
 import { STEP_ORDER } from "./types.ts";
 
 /**
@@ -66,16 +66,16 @@ export const store = {
   },
 };
 
-// --- Pending approvals: keep the original request so the button handler can
+// --- Pending approvals: keep the original info so the button handler can
 // rebuild the decision recap, and guard against double-clicks. ---
-const approvals = new Map<string, ApprovalRequest>();
+const approvals = new Map<string, ApprovalInfo>();
 
 export const approvalStore = {
-  add(req: ApprovalRequest) {
+  add(req: ApprovalInfo) {
     approvals.set(req.approvalId, req);
   },
-  /** Consume once: returns the request and removes it (prevents double-decide). */
-  take(approvalId: string): ApprovalRequest | undefined {
+  /** Consume once: returns the info and removes it (prevents double-decide). */
+  take(approvalId: string): ApprovalInfo | undefined {
     const req = approvals.get(approvalId);
     if (req) approvals.delete(approvalId);
     return req;

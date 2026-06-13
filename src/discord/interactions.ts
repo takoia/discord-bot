@@ -34,7 +34,6 @@ export async function handleButton(interaction: ButtonInteraction) {
 
   const res = await backend.sendApproval(approvalId, {
     decision: approved ? "approve" : "reject",
-    by,
   });
 
   if (!res.ok) {
