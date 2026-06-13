@@ -1,9 +1,9 @@
 import { type Client, type SendableChannels } from "discord.js";
 import { config } from "../config.ts";
 import { logger } from "../logger.ts";
-import { store } from "../store.ts";
-import { JobEventSchema } from "../types.ts";
-import { jobEmbed } from "../discord/embeds.ts";
+import { approvalStore, store } from "../store.ts";
+import { ApprovalRequestSchema, JobEventSchema } from "../types.ts";
+import { approvalMessage, jobEmbed } from "../discord/embeds.ts";
 
 /**
  * Incoming events: core-backend -> bot. All endpoints require
@@ -62,6 +62,38 @@ async function handleEvent(client: Client, raw: unknown): Promise<Response> {
   return json({ ok: true });
 }
 
+async function handleApproval(client: Client, raw: unknown): Promise<Response> {
+  const parsed = ApprovalRequestSchema.safeParse(raw);
+  if (!parsed.success) return json({ ok: false, error: "invalid payload" }, 400);
+  const req = parsed.data;
+
+  // Post in the same channel as the job if we know it, else fail clearly.
+  const job = store.get(req.jobId);
+  if (!job) {
+    logger.warn("Approval for unknown job", { jobId: req.jobId });
+    return json({ ok: false, error: "unknown job" }, 404);
+  }
+
+  const channel = await fetchSendableChannel(client, job.channelId);
+  if (!channel) return json({ ok: false, error: "channel unavailable" }, 500);
+
+  // Reflect the waiting state on the live timeline too.
+  if (req.step) {
+    store.applyEvent(req.jobId, req.step, "waiting_approval", undefined, "waiting_approval");
+    try {
+      const msg = await channel.messages.fetch(job.messageId);
+      await msg.edit({ embeds: [jobEmbed(job)] });
+    } catch {
+      /* non-fatal */
+    }
+  }
+
+  approvalStore.add(req);
+  await channel.send(approvalMessage(req));
+  logger.info("Approval posted", { approvalId: req.approvalId, jobId: req.jobId });
+  return json({ ok: true });
+}
+
 export function startHttpServer(client: Client) {
   const server = Bun.serve({
     port: config.PORT,
@@ -87,6 +119,8 @@ export function startHttpServer(client: Client) {
         switch (url.pathname) {
           case "/events":
             return await handleEvent(client, body);
+          case "/approvals":
+            return await handleApproval(client, body);
           default:
             return json({ ok: false, error: "not found" }, 404);
         }
@@ -97,6 +131,8 @@ export function startHttpServer(client: Client) {
     },
   });
 
-  logger.info(`HTTP server listening on :${server.port}`, { endpoints: ["/events", "/health"] });
+  logger.info(`HTTP server listening on :${server.port}`, {
+    endpoints: ["/events", "/approvals", "/health"],
+  });
   return server;
 }

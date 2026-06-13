@@ -2,6 +2,7 @@ import { Client, Events, GatewayIntentBits } from "discord.js";
 import { config } from "../config.ts";
 import { logger } from "../logger.ts";
 import { handleCommand } from "./commands.ts";
+import { handleButton } from "./interactions.ts";
 
 /**
  * The Discord client. Only the Guilds intent is needed — slash commands and
@@ -19,10 +20,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
   try {
     if (interaction.isChatInputCommand()) {
       await handleCommand(interaction);
+    } else if (interaction.isButton()) {
+      await handleButton(interaction);
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.error("Interaction handler crashed", { error: msg });
+    // Best-effort: tell the user something went wrong without crashing the bot.
     try {
       if (interaction.isRepliable()) {
         if (interaction.deferred || interaction.replied) {

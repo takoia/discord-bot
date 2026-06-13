@@ -1,7 +1,13 @@
-import { EmbedBuilder } from "discord.js";
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder,
+} from "discord.js";
 import {
   STEP_LABELS,
   STEP_ORDER,
+  type ApprovalRequest,
   type JobStatus,
   type StepStatus,
 } from "../types.ts";
@@ -52,4 +58,47 @@ export function jobEmbed(job: TrackedJob): EmbedBuilder {
     .setDescription(lines.join("\n"))
     .setFooter({ text: `job ${job.jobId} · ${JOB_BADGE[job.jobStatus]}` })
     .setTimestamp(new Date());
+}
+
+/** Embed + buttons for a human-in-the-loop approval request. */
+export function approvalMessage(req: ApprovalRequest): {
+  embeds: EmbedBuilder[];
+  components: ActionRowBuilder<ButtonBuilder>[];
+} {
+  const embed = new EmbedBuilder()
+    .setColor(0xe67e22)
+    .setAuthor({ name: "Takoia · Validation requise" })
+    .setTitle("⏸️ L'agent demande votre accord")
+    .setDescription(`**Action proposée**\n${truncate(req.action, 1000)}`)
+    .setFooter({ text: `job ${req.jobId}` });
+
+  if (req.reason) embed.addFields({ name: "Pourquoi", value: truncate(req.reason, 1000) });
+  if (req.step) embed.addFields({ name: "Étape", value: STEP_LABELS[req.step], inline: true });
+
+  // approvalId is encoded in the customId so the click handler knows the target.
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`approve:${req.approvalId}`)
+      .setLabel("Valider")
+      .setEmoji("✅")
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId(`reject:${req.approvalId}`)
+      .setLabel("Refuser")
+      .setEmoji("❌")
+      .setStyle(ButtonStyle.Danger),
+  );
+
+  return { embeds: [embed], components: [row] };
+}
+
+/** Decision recap embed shown after a button is clicked (buttons disabled). */
+export function decisionEmbed(req: ApprovalRequest, approved: boolean, by: string): EmbedBuilder {
+  return new EmbedBuilder()
+    .setColor(approved ? 0x2ecc71 : 0xe74c3c)
+    .setAuthor({ name: "Takoia · Validation requise" })
+    .setTitle(approved ? "✅ Action validée" : "❌ Action refusée")
+    .setDescription(truncate(req.action, 1000))
+    .addFields({ name: "Décision par", value: by, inline: true })
+    .setFooter({ text: `job ${req.jobId}` });
 }
