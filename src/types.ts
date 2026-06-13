@@ -45,6 +45,8 @@ export const AgentSchema = z.object({
   description: z.string().nullish().transform((v) => v ?? ""),
   autonomy_level: AutonomyLevel.catch("confirm_before_action"),
   expertise_domain: z.string().nullish().transform((v) => v ?? ""),
+  // Per-agent emoji set in the builder (migration 0006). Empty if unset.
+  icon: z.string().nullish().transform((v) => v ?? ""),
 });
 export type Agent = z.infer<typeof AgentSchema>;
 

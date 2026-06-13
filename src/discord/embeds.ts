@@ -136,13 +136,16 @@ export function agentPickerComponents(
   const capped = agents.slice(0, 25);
   for (let i = 0; i < capped.length; i += 5) {
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      ...capped.slice(i, i + 5).map((a) =>
-        new ButtonBuilder()
+      ...capped.slice(i, i + 5).map((a) => {
+        // Show the agent's own icon when set; the button colour conveys autonomy
+        // (blue = full auto, grey = asks for validation). Icon goes in the label
+        // (not setEmoji) to avoid throwing on non-standard emoji strings.
+        const label = truncate(`${a.icon ? a.icon + " " : ""}${a.name || a.id}`.trim(), 80);
+        return new ButtonBuilder()
           .setCustomId(`${prefix}:${a.id}`)
-          .setLabel(truncate(a.name || a.id, 80))
-          .setEmoji(a.autonomy_level === "full_auto" ? "🟢" : "🟠")
-          .setStyle(a.autonomy_level === "full_auto" ? ButtonStyle.Primary : ButtonStyle.Secondary),
-      ),
+          .setLabel(label)
+          .setStyle(a.autonomy_level === "full_auto" ? ButtonStyle.Primary : ButtonStyle.Secondary);
+      }),
     );
     rows.push(row);
   }
@@ -162,7 +165,7 @@ export function agentsEmbed(agents: Agent[]): EmbedBuilder {
       a.autonomy_level === "full_auto" ? "🟢 autonomie totale" : "🟠 validation humaine";
     const domain = a.expertise_domain ? ` · ${a.expertise_domain}` : "";
     embed.addFields({
-      name: `${a.name}  (\`${a.id}\`)`,
+      name: `${a.icon ? a.icon + " " : ""}${a.name}  (\`${a.id}\`)`,
       value: `${a.description ? truncate(a.description, 180) + "\n" : ""}${autonomy}${domain}`,
     });
   }
