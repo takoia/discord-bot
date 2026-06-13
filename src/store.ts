@@ -81,3 +81,15 @@ export const approvalStore = {
     return req;
   },
 };
+
+// --- Per-user selected agent: chosen via /agent buttons, used by /objectif. ---
+const selectedAgents = new Map<string, { id: string; name: string }>();
+
+export const agentSelection = {
+  set(userId: string, agent: { id: string; name: string }) {
+    selectedAgents.set(userId, agent);
+  },
+  get(userId: string): { id: string; name: string } | undefined {
+    return selectedAgents.get(userId);
+  },
+};

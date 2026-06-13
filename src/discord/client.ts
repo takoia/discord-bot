@@ -1,7 +1,7 @@
 import { Client, Events, GatewayIntentBits } from "discord.js";
 import { config } from "../config.ts";
 import { logger } from "../logger.ts";
-import { handleAutocomplete, handleCommand } from "./commands.ts";
+import { handleCommand } from "./commands.ts";
 import { handleButton } from "./interactions.ts";
 
 /**
@@ -20,8 +20,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
   try {
     if (interaction.isChatInputCommand()) {
       await handleCommand(interaction);
-    } else if (interaction.isAutocomplete()) {
-      await handleAutocomplete(interaction);
     } else if (interaction.isButton()) {
       await handleButton(interaction);
     }

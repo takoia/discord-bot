@@ -124,6 +124,28 @@ export function reportEmbed(report: { jobId: string; title?: string; summary?: s
   return embed;
 }
 
+/**
+ * Buttons to pick an agent (one per agent), like the approval buttons.
+ * customId: "agent:<id>". Discord caps components at 5 buttons × 5 rows = 25.
+ */
+export function agentPickerComponents(agents: Agent[]): ActionRowBuilder<ButtonBuilder>[] {
+  const rows: ActionRowBuilder<ButtonBuilder>[] = [];
+  const capped = agents.slice(0, 25);
+  for (let i = 0; i < capped.length; i += 5) {
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      ...capped.slice(i, i + 5).map((a) =>
+        new ButtonBuilder()
+          .setCustomId(`agent:${a.id}`)
+          .setLabel(truncate(a.name, 80))
+          .setEmoji(a.autonomy_level === "full_auto" ? "🟢" : "🟠")
+          .setStyle(a.autonomy_level === "full_auto" ? ButtonStyle.Primary : ButtonStyle.Secondary),
+      ),
+    );
+    rows.push(row);
+  }
+  return rows;
+}
+
 export function agentsEmbed(agents: Agent[]): EmbedBuilder {
   const embed = new EmbedBuilder().setColor(0x9b59b6).setTitle("🤖 Agents disponibles");
 

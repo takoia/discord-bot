@@ -5,17 +5,24 @@ import {
   type ButtonInteraction,
 } from "discord.js";
 import { backend } from "../backend.ts";
-import { approvalStore } from "../store.ts";
+import { agentSelection, approvalStore } from "../store.ts";
 import { logger } from "../logger.ts";
 import { decisionEmbed } from "./embeds.ts";
 
 /**
- * Handles ✅/❌ button clicks on approval messages.
- * customId format: "approve:<approvalId>" | "reject:<approvalId>".
+ * Handles button clicks. customId formats:
+ *   - "agent:<id>"            — pick the agent to use for /objectif
+ *   - "approve:<approvalId>"  — human-in-the-loop validation
+ *   - "reject:<approvalId>"
  */
 export async function handleButton(interaction: ButtonInteraction) {
-  const [action, approvalId] = interaction.customId.split(":");
-  if ((action !== "approve" && action !== "reject") || !approvalId) return;
+  const sep = interaction.customId.indexOf(":");
+  const action = sep >= 0 ? interaction.customId.slice(0, sep) : interaction.customId;
+  const value = sep >= 0 ? interaction.customId.slice(sep + 1) : "";
+
+  if (action === "agent") return handleAgentPick(interaction, value);
+  if ((action !== "approve" && action !== "reject") || !value) return;
+  const approvalId = value;
 
   const req = approvalStore.take(approvalId);
   if (!req) {
@@ -68,4 +75,17 @@ export async function handleButton(interaction: ButtonInteraction) {
   });
 
   logger.info("Approval decided", { approvalId, jobId: req.jobId, approved, by });
+}
+
+/** Store the picked agent for this user (name read from the clicked button). */
+async function handleAgentPick(interaction: ButtonInteraction, agentId: string) {
+  if (!agentId) return;
+  const comp = interaction.component;
+  const name = ("label" in comp && comp.label) || agentId;
+  agentSelection.set(interaction.user.id, { id: agentId, name });
+  logger.info("Agent selected", { agentId, by: interaction.user.tag });
+  await interaction.reply({
+    content: `✅ Agent sélectionné : **${name}**.\nLance maintenant \`/objectif\` avec ce que tu veux faire.`,
+    ephemeral: true,
+  });
 }

@@ -1,14 +1,14 @@
 import {
   SlashCommandBuilder,
-  type AutocompleteInteraction,
   type ChatInputCommandInteraction,
 } from "discord.js";
 import { backend } from "../backend.ts";
-import { store } from "../store.ts";
+import { agentSelection, store } from "../store.ts";
 import { logger } from "../logger.ts";
 import { subscribeJob } from "../jobstream.ts";
 import { JobStatus, type Agent } from "../types.ts";
 import {
+  agentPickerComponents,
   agentsEmbed,
   jobDetailEmbed,
   jobEmbed,
@@ -18,16 +18,11 @@ import {
 /** Slash command definitions — exported as JSON for the register script. */
 export const commandData = [
   new SlashCommandBuilder()
+    .setName("agent")
+    .setDescription("Choisis l'agent à utiliser (boutons)"),
+  new SlashCommandBuilder()
     .setName("objectif")
-    .setDescription("Lance un objectif confié à un agent autonome")
-    // Agent first (required, autocomplete): on choisit l'agent, puis on écrit.
-    .addStringOption((o) =>
-      o
-        .setName("agent")
-        .setDescription("Choisis l'agent")
-        .setRequired(true)
-        .setAutocomplete(true),
-    )
+    .setDescription("Lance un objectif avec l'agent choisi (via /agent)")
     .addStringOption((o) =>
       o.setName("texte").setDescription("Ce que tu veux que l'agent fasse").setRequired(true),
     ),
@@ -56,8 +51,7 @@ export const commandData = [
   new SlashCommandBuilder().setName("ping").setDescription("Santé du bot + ping backend"),
 ].map((c) => c.toJSON());
 
-// Short-lived agent cache so autocomplete stays snappy and doesn't hammer the
-// backend on every keystroke.
+// Short-lived agent cache so /agent renders fast without hammering the backend.
 let agentsCache: { at: number; agents: Agent[] } | null = null;
 const AGENTS_TTL_MS = 30_000;
 
@@ -70,26 +64,13 @@ async function getAgents(): Promise<Agent[]> {
   return res.data;
 }
 
-/** Autocomplete for the /objectif `agent` option: suggest agents by name/id. */
-export async function handleAutocomplete(interaction: AutocompleteInteraction) {
-  if (interaction.commandName !== "objectif") return interaction.respond([]);
-  const focused = interaction.options.getFocused().toLowerCase();
-  const agents = await getAgents();
-  const choices = agents
-    .filter((a) => !focused || a.name.toLowerCase().includes(focused) || a.id.toLowerCase().includes(focused))
-    .slice(0, 25)
-    .map((a) => ({
-      name: `${a.name} · ${a.autonomy_level === "full_auto" ? "🟢 auto" : "🟠 validation"}`.slice(0, 100),
-      value: a.id,
-    }));
-  await interaction.respond(choices);
-}
-
 /** Dispatch a chat-input command. Each handler degrades gracefully on error. */
 export async function handleCommand(interaction: ChatInputCommandInteraction) {
   switch (interaction.commandName) {
     case "ping":
       return handlePing(interaction);
+    case "agent":
+      return handleAgent(interaction);
     case "objectif":
       return handleObjectif(interaction);
     case "agents":
@@ -119,15 +100,40 @@ async function handlePing(interaction: ChatInputCommandInteraction) {
   });
 }
 
+/** /agent — posts one button per agent; the click sets the user's selection. */
+async function handleAgent(interaction: ChatInputCommandInteraction) {
+  await interaction.deferReply({ ephemeral: true });
+  const agents = await getAgents();
+  if (agents.length === 0) {
+    await interaction.editReply("⚠️ Aucun agent disponible côté backend.");
+    return;
+  }
+  const current = agentSelection.get(interaction.user.id);
+  await interaction.editReply({
+    content:
+      `🤖 **Choisis l'agent** à utiliser, puis lance \`/objectif\`.` +
+      (current ? `\n_Agent actuel : **${current.name}**_` : ""),
+    components: agentPickerComponents(agents),
+  });
+}
+
 async function handleObjectif(interaction: ChatInputCommandInteraction) {
-  const agentId = interaction.options.getString("agent", true);
   const objective = interaction.options.getString("texte", true);
   const channelId = interaction.channelId;
+
+  const selected = agentSelection.get(interaction.user.id);
+  if (!selected) {
+    await interaction.reply({
+      content: "⚠️ Choisis d'abord un agent avec **/agent**, puis relance `/objectif`.",
+      ephemeral: true,
+    });
+    return;
+  }
 
   await interaction.deferReply();
 
   const res = await backend.createObjective({
-    agent_id: agentId,
+    agent_id: selected.id,
     title: objective.slice(0, 80),
     prompt: objective,
   });
@@ -141,13 +147,16 @@ async function handleObjectif(interaction: ChatInputCommandInteraction) {
   const jobId = res.data.job_id;
   // Seed the local timeline, post the living message, then record its id.
   const job = store.create(jobId, objective, channelId, "");
-  const message = await interaction.editReply({ embeds: [jobEmbed(job)] });
+  const message = await interaction.editReply({
+    content: `🚀 Lancé avec l'agent **${selected.name}**`,
+    embeds: [jobEmbed(job)],
+  });
   job.messageId = message.id;
 
   // Subscribe to the SSE stream: events will edit this message, post approval
   // buttons, and deliver the final report.
   subscribeJob(interaction.client, jobId);
-  logger.info("Objective created", { jobId, agentId });
+  logger.info("Objective created", { jobId, agentId: selected.id });
 }
 
 async function handleAgents(interaction: ChatInputCommandInteraction) {
