@@ -8,6 +8,7 @@
     "dev": "bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
     "register": "bun run scripts/register-commands.ts",
+    "mock": "bun run scripts/mock-backend.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
