@@ -1,12 +1,13 @@
 import {
   SlashCommandBuilder,
+  type AutocompleteInteraction,
   type ChatInputCommandInteraction,
 } from "discord.js";
 import { backend } from "../backend.ts";
 import { store } from "../store.ts";
 import { logger } from "../logger.ts";
 import { subscribeJob } from "../jobstream.ts";
-import { JobStatus } from "../types.ts";
+import { JobStatus, type Agent } from "../types.ts";
 import {
   agentsEmbed,
   jobDetailEmbed,
@@ -23,7 +24,11 @@ export const commandData = [
       o.setName("texte").setDescription("L'objectif à atteindre").setRequired(true),
     )
     .addStringOption((o) =>
-      o.setName("agent").setDescription("ID de l'agent (sinon: choisi automatiquement)").setRequired(false),
+      o
+        .setName("agent")
+        .setDescription("Agent à utiliser (laisse vide pour un choix automatique)")
+        .setRequired(false)
+        .setAutocomplete(true),
     ),
   new SlashCommandBuilder().setName("agents").setDescription("Liste les agents disponibles"),
   new SlashCommandBuilder()
@@ -49,6 +54,35 @@ export const commandData = [
     ),
   new SlashCommandBuilder().setName("ping").setDescription("Santé du bot + ping backend"),
 ].map((c) => c.toJSON());
+
+// Short-lived agent cache so autocomplete stays snappy and doesn't hammer the
+// backend on every keystroke.
+let agentsCache: { at: number; agents: Agent[] } | null = null;
+const AGENTS_TTL_MS = 30_000;
+
+async function getAgents(): Promise<Agent[]> {
+  const now = performance.now();
+  if (agentsCache && now - agentsCache.at < AGENTS_TTL_MS) return agentsCache.agents;
+  const res = await backend.listAgents();
+  if (!res.ok) return agentsCache?.agents ?? [];
+  agentsCache = { at: now, agents: res.data };
+  return res.data;
+}
+
+/** Autocomplete for the /objectif `agent` option: suggest agents by name/id. */
+export async function handleAutocomplete(interaction: AutocompleteInteraction) {
+  if (interaction.commandName !== "objectif") return interaction.respond([]);
+  const focused = interaction.options.getFocused().toLowerCase();
+  const agents = await getAgents();
+  const choices = agents
+    .filter((a) => !focused || a.name.toLowerCase().includes(focused) || a.id.toLowerCase().includes(focused))
+    .slice(0, 25)
+    .map((a) => ({
+      name: `${a.name} · ${a.autonomy_level === "full_auto" ? "🟢 auto" : "🟠 validation"}`.slice(0, 100),
+      value: a.id,
+    }));
+  await interaction.respond(choices);
+}
 
 /** Dispatch a chat-input command. Each handler degrades gracefully on error. */
 export async function handleCommand(interaction: ChatInputCommandInteraction) {
