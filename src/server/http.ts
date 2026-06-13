@@ -1,9 +1,17 @@
-import { type Client, type SendableChannels } from "discord.js";
+import {
+  AttachmentBuilder,
+  type Client,
+  type SendableChannels,
+} from "discord.js";
 import { config } from "../config.ts";
 import { logger } from "../logger.ts";
 import { approvalStore, store } from "../store.ts";
-import { ApprovalRequestSchema, JobEventSchema } from "../types.ts";
-import { approvalMessage, jobEmbed } from "../discord/embeds.ts";
+import {
+  ApprovalRequestSchema,
+  JobEventSchema,
+  ReportSchema,
+} from "../types.ts";
+import { approvalMessage, jobEmbed, reportEmbed } from "../discord/embeds.ts";
 
 /**
  * Incoming events: core-backend -> bot. All endpoints require
@@ -94,6 +102,49 @@ async function handleApproval(client: Client, raw: unknown): Promise<Response> {
   return json({ ok: true });
 }
 
+async function handleReport(client: Client, raw: unknown): Promise<Response> {
+  const parsed = ReportSchema.safeParse(raw);
+  if (!parsed.success) return json({ ok: false, error: "invalid payload" }, 400);
+  const report = parsed.data;
+
+  const job = store.get(report.jobId);
+  if (!job) {
+    logger.warn("Report for unknown job", { jobId: report.jobId });
+    return json({ ok: false, error: "unknown job" }, 404);
+  }
+
+  const channel = await fetchSendableChannel(client, job.channelId);
+  if (!channel) return json({ ok: false, error: "channel unavailable" }, 500);
+
+  // Mark restitution done + job done on the timeline.
+  store.applyEvent(report.jobId, "restitution", "done", "Rapport livré ✅", "done");
+  try {
+    const msg = await channel.messages.fetch(job.messageId);
+    await msg.edit({ embeds: [jobEmbed(job)] });
+  } catch {
+    /* non-fatal */
+  }
+
+  // Markdown over ~3500 chars goes out as a .md attachment; short ones inline.
+  const files =
+    report.markdown.length > 3500
+      ? [
+          new AttachmentBuilder(Buffer.from(report.markdown, "utf-8"), {
+            name: `rapport-${report.jobId}.md`,
+          }),
+        ]
+      : undefined;
+
+  const summary = report.summary ?? (report.markdown.length <= 3500 ? report.markdown : undefined);
+  await channel.send({
+    embeds: [reportEmbed({ ...report, summary })],
+    files,
+  });
+
+  logger.info("Report delivered", { jobId: report.jobId, attached: Boolean(files) });
+  return json({ ok: true });
+}
+
 export function startHttpServer(client: Client) {
   const server = Bun.serve({
     port: config.PORT,
@@ -121,6 +172,8 @@ export function startHttpServer(client: Client) {
             return await handleEvent(client, body);
           case "/approvals":
             return await handleApproval(client, body);
+          case "/reports":
+            return await handleReport(client, body);
           default:
             return json({ ok: false, error: "not found" }, 404);
         }
@@ -132,7 +185,7 @@ export function startHttpServer(client: Client) {
   });
 
   logger.info(`HTTP server listening on :${server.port}`, {
-    endpoints: ["/events", "/approvals", "/health"],
+    endpoints: ["/events", "/approvals", "/reports", "/health"],
   });
   return server;
 }

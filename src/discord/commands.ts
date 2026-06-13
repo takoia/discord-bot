@@ -5,7 +5,12 @@ import {
 import { backend } from "../backend.ts";
 import { store } from "../store.ts";
 import { logger } from "../logger.ts";
-import { jobEmbed } from "./embeds.ts";
+import {
+  agentsEmbed,
+  jobDetailEmbed,
+  jobEmbed,
+  jobsListEmbed,
+} from "./embeds.ts";
 
 /** Slash command definitions — exported as JSON for the register script. */
 export const commandData = [
@@ -18,6 +23,28 @@ export const commandData = [
     .addStringOption((o) =>
       o.setName("agent").setDescription("ID de l'agent (optionnel)").setRequired(false),
     ),
+  new SlashCommandBuilder().setName("agents").setDescription("Liste les agents disponibles"),
+  new SlashCommandBuilder()
+    .setName("jobs")
+    .setDescription("Liste les jobs récents")
+    .addStringOption((o) =>
+      o
+        .setName("statut")
+        .setDescription("Filtrer par statut")
+        .setRequired(false)
+        .addChoices(
+          { name: "en cours", value: "running" },
+          { name: "attente validation", value: "waiting_approval" },
+          { name: "terminé", value: "done" },
+          { name: "échec", value: "failed" },
+        ),
+    ),
+  new SlashCommandBuilder()
+    .setName("status")
+    .setDescription("Détail d'un job et de ses 4 étapes")
+    .addStringOption((o) =>
+      o.setName("job_id").setDescription("ID du job").setRequired(true),
+    ),
   new SlashCommandBuilder().setName("ping").setDescription("Santé du bot + ping backend"),
 ].map((c) => c.toJSON());
 
@@ -28,6 +55,12 @@ export async function handleCommand(interaction: ChatInputCommandInteraction) {
       return handlePing(interaction);
     case "objectif":
       return handleObjectif(interaction);
+    case "agents":
+      return handleAgents(interaction);
+    case "jobs":
+      return handleJobs(interaction);
+    case "status":
+      return handleStatus(interaction);
     default:
       return interaction.reply({ content: "Commande inconnue.", ephemeral: true });
   }
@@ -72,4 +105,36 @@ async function handleObjectif(interaction: ChatInputCommandInteraction) {
   const message = await interaction.editReply({ embeds: [jobEmbed(job)] });
   job.messageId = message.id;
   logger.info("Objective created", { jobId, agentId });
+}
+
+async function handleAgents(interaction: ChatInputCommandInteraction) {
+  await interaction.deferReply();
+  const res = await backend.listAgents();
+  if (!res.ok) {
+    await interaction.editReply(`⚠️ Impossible de récupérer les agents : ${res.error}`);
+    return;
+  }
+  await interaction.editReply({ embeds: [agentsEmbed(res.data)] });
+}
+
+async function handleJobs(interaction: ChatInputCommandInteraction) {
+  const statut = interaction.options.getString("statut") ?? undefined;
+  await interaction.deferReply();
+  const res = await backend.listJobs(statut);
+  if (!res.ok) {
+    await interaction.editReply(`⚠️ Impossible de récupérer les jobs : ${res.error}`);
+    return;
+  }
+  await interaction.editReply({ embeds: [jobsListEmbed(res.data)] });
+}
+
+async function handleStatus(interaction: ChatInputCommandInteraction) {
+  const jobId = interaction.options.getString("job_id", true);
+  await interaction.deferReply();
+  const res = await backend.getJob(jobId);
+  if (!res.ok) {
+    await interaction.editReply(`⚠️ Job introuvable ou backend indisponible : ${res.error}`);
+    return;
+  }
+  await interaction.editReply({ embeds: [jobDetailEmbed(res.data)] });
 }

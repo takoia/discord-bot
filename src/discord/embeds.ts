@@ -7,8 +7,11 @@ import {
 import {
   STEP_LABELS,
   STEP_ORDER,
+  type Agent,
   type ApprovalRequest,
+  type Job,
   type JobStatus,
+  type Report,
   type StepStatus,
 } from "../types.ts";
 import type { TrackedJob } from "../store.ts";
@@ -101,4 +104,71 @@ export function decisionEmbed(req: ApprovalRequest, approved: boolean, by: strin
     .setDescription(truncate(req.action, 1000))
     .addFields({ name: "Décision par", value: by, inline: true })
     .setFooter({ text: `job ${req.jobId}` });
+}
+
+/** Summary embed for the final deliverable. */
+export function reportEmbed(report: Report): EmbedBuilder {
+  const embed = new EmbedBuilder()
+    .setColor(0x2ecc71)
+    .setAuthor({ name: "Takoia · Livrable" })
+    .setTitle(`📄 ${truncate(report.title ?? "Rapport final", 240)}`)
+    .setFooter({ text: `job ${report.jobId}` })
+    .setTimestamp(new Date());
+
+  if (report.summary) embed.setDescription(truncate(report.summary, 3500));
+  return embed;
+}
+
+export function agentsEmbed(agents: Agent[]): EmbedBuilder {
+  const embed = new EmbedBuilder()
+    .setColor(0x9b59b6)
+    .setTitle("🤖 Agents disponibles");
+
+  if (agents.length === 0) {
+    embed.setDescription("Aucun agent disponible.");
+    return embed;
+  }
+
+  for (const a of agents.slice(0, 25)) {
+    const autonomy = a.autonomy === "full" ? "🟢 autonomie totale" : "🟠 validation humaine";
+    embed.addFields({
+      name: `${a.name}  (\`${a.id}\`)`,
+      value: `${a.description ? truncate(a.description, 200) + "\n" : ""}${autonomy}`,
+    });
+  }
+  return embed;
+}
+
+export function jobsListEmbed(jobs: Job[]): EmbedBuilder {
+  const embed = new EmbedBuilder().setColor(0x3498db).setTitle("🗂️ Jobs récents");
+
+  if (jobs.length === 0) {
+    embed.setDescription("Aucun job pour le moment.");
+    return embed;
+  }
+
+  const lines = jobs.slice(0, 15).map((j) => {
+    return `${JOB_BADGE[j.status]} \`${j.id}\` — ${truncate(j.objective, 80)}`;
+  });
+  embed.setDescription(lines.join("\n"));
+  return embed;
+}
+
+/** Detailed view for /status — built from a full Job (REST), not the local store. */
+export function jobDetailEmbed(job: Job): EmbedBuilder {
+  const byName = new Map(job.steps.map((s) => [s.name, s]));
+  const lines = STEP_ORDER.map((step, i) => {
+    const s = byName.get(step);
+    const status = s?.status ?? "pending";
+    const icon = STATUS_ICON[status];
+    const out = s?.output ? `\n     ↳ ${truncate(s.output, 180)}` : "";
+    return `${icon} ${i + 1}. ${STEP_LABELS[step]}${out}`;
+  });
+
+  return new EmbedBuilder()
+    .setColor(JOB_COLOR[job.status])
+    .setAuthor({ name: "Takoia · Détail du job" })
+    .setTitle(`🎯 ${truncate(job.objective, 240)}`)
+    .setDescription(lines.join("\n"))
+    .setFooter({ text: `job ${job.id} · ${JOB_BADGE[job.status]}` });
 }
