@@ -1,0 +1,21 @@
+{
+  "name": "takoia-discord-bot",
+  "version": "0.1.0",
+  "description": "Discord bot for Takoia — conversational interface for autonomous AI agents",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts",
+    "register": "bun run scripts/register-commands.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.6.3"
+  }
+}
