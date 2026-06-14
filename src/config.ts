@@ -13,6 +13,12 @@ const EnvSchema = z.object({
   // Optional: the MVP backend is unauthenticated. If set, the bot sends it as a
   // Bearer on REST + SSE calls (forward-compatible).
   SHARED_SECRET: z.string().optional().default(""),
+  // Chat mode requires the privileged MessageContent intent (enabled in the
+  // Developer Portal). Keep OFF until that's done, else login fails. "1"/"true".
+  CHAT_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === "1" || v === "true"),
 });
 
 const parsed = EnvSchema.safeParse(process.env);

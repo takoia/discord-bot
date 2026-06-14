@@ -3,6 +3,7 @@ import {
   type ChatInputCommandInteraction,
 } from "discord.js";
 import { backend } from "../backend.ts";
+import { config } from "../config.ts";
 import { pendingObjective } from "../store.ts";
 import { logger } from "../logger.ts";
 import { JobStatus, type Agent } from "../types.ts";
@@ -21,9 +22,14 @@ export const commandData = [
     .addStringOption((o) =>
       o.setName("texte").setDescription("Ce que tu veux que l'agent fasse").setRequired(true),
     ),
-  new SlashCommandBuilder()
-    .setName("chat")
-    .setDescription("Ouvre un chat continu avec un agent (tu écris, il répond)"),
+  // /chat is only registered when chat mode is enabled (needs MessageContent).
+  ...(config.CHAT_ENABLED
+    ? [
+        new SlashCommandBuilder()
+          .setName("chat")
+          .setDescription("Ouvre un chat continu avec un agent (tu écris, il répond)"),
+      ]
+    : []),
   new SlashCommandBuilder().setName("agents").setDescription("Liste les agents disponibles"),
   new SlashCommandBuilder()
     .setName("jobs")

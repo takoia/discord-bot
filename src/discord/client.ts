@@ -11,13 +11,13 @@ import { handleChatMessage } from "../chat.ts";
  * bound thread). MessageContent is a PRIVILEGED intent — it must be enabled in
  * the Developer Portal (Bot > Message Content Intent) or login will fail.
  */
-export const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-  ],
-});
+const intents = [GatewayIntentBits.Guilds];
+if (config.CHAT_ENABLED) {
+  // Privileged — only request once enabled in the Developer Portal.
+  intents.push(GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent);
+}
+
+export const client = new Client({ intents });
 
 client.once(Events.ClientReady, (c) => {
   logger.info(`Bot online as ${c.user.tag}`, { guilds: c.guilds.cache.size });
