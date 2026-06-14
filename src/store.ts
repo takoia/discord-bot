@@ -113,3 +113,9 @@ export const chatBinding = {
     chatBindings.delete(channelId);
   },
 };
+
+// --- Runtime flags discovered at startup (shared, no import cycle). ---
+export const runtime = {
+  /** True once the MessageContent intent is confirmed granted (chat usable). */
+  chatReady: false,
+};

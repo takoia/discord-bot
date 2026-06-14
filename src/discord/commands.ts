@@ -3,8 +3,7 @@ import {
   type ChatInputCommandInteraction,
 } from "discord.js";
 import { backend } from "../backend.ts";
-import { config } from "../config.ts";
-import { pendingObjective } from "../store.ts";
+import { pendingObjective, runtime } from "../store.ts";
 import { logger } from "../logger.ts";
 import { JobStatus, type Agent } from "../types.ts";
 import {
@@ -22,14 +21,9 @@ export const commandData = [
     .addStringOption((o) =>
       o.setName("texte").setDescription("Ce que tu veux que l'agent fasse").setRequired(true),
     ),
-  // /chat is only registered when chat mode is enabled (needs MessageContent).
-  ...(config.CHAT_ENABLED
-    ? [
-        new SlashCommandBuilder()
-          .setName("chat")
-          .setDescription("Ouvre un chat continu avec un agent (tu écris, il répond)"),
-      ]
-    : []),
+  new SlashCommandBuilder()
+    .setName("chat")
+    .setDescription("Ouvre un chat continu avec un agent (tu écris, il répond)"),
   new SlashCommandBuilder().setName("agents").setDescription("Liste les agents disponibles"),
   new SlashCommandBuilder()
     .setName("jobs")
@@ -130,6 +124,17 @@ async function handleObjectif(interaction: ChatInputCommandInteraction) {
 
 /** /chat — pick an agent; the click opens a thread bound to it (interactions.ts). */
 async function handleChat(interaction: ChatInputCommandInteraction) {
+  if (!runtime.chatReady) {
+    await interaction.reply({
+      content:
+        "⚠️ Le mode chat n'est pas encore actif.\n" +
+        "Active **Message Content Intent** dans le Developer Portal " +
+        "(ton appli → **Bot** → *Privileged Gateway Intents*), clique **Save**, " +
+        "puis demande-moi de redémarrer le bot. 🔧",
+      ephemeral: true,
+    });
+    return;
+  }
   await interaction.deferReply({ ephemeral: true });
   const agents = await getAgents();
   if (agents.length === 0) {
