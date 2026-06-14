@@ -97,3 +97,19 @@ export const pendingObjective = {
     return p;
   },
 };
+
+// --- Chat bindings: a channel/thread bound to an agent. Every (non-bot)
+// message there is sent to that agent as an objective. ---
+const chatBindings = new Map<string, { agentId: string; name: string }>();
+
+export const chatBinding = {
+  bind(channelId: string, agent: { agentId: string; name: string }) {
+    chatBindings.set(channelId, agent);
+  },
+  get(channelId: string): { agentId: string; name: string } | undefined {
+    return chatBindings.get(channelId);
+  },
+  unbind(channelId: string) {
+    chatBindings.delete(channelId);
+  },
+};

@@ -21,6 +21,9 @@ export const commandData = [
     .addStringOption((o) =>
       o.setName("texte").setDescription("Ce que tu veux que l'agent fasse").setRequired(true),
     ),
+  new SlashCommandBuilder()
+    .setName("chat")
+    .setDescription("Ouvre un chat continu avec un agent (tu écris, il répond)"),
   new SlashCommandBuilder().setName("agents").setDescription("Liste les agents disponibles"),
   new SlashCommandBuilder()
     .setName("jobs")
@@ -67,6 +70,8 @@ export async function handleCommand(interaction: ChatInputCommandInteraction) {
       return handlePing(interaction);
     case "objectif":
       return handleObjectif(interaction);
+    case "chat":
+      return handleChat(interaction);
     case "agents":
       return handleAgents(interaction);
     case "jobs":
@@ -114,6 +119,20 @@ async function handleObjectif(interaction: ChatInputCommandInteraction) {
   await interaction.editReply({
     content: `🎯 **${objective.slice(0, 200)}**\n\nChoisis l'agent qui va s'en charger 👇`,
     components: agentPickerComponents(agents, "launch"),
+  });
+}
+
+/** /chat — pick an agent; the click opens a thread bound to it (interactions.ts). */
+async function handleChat(interaction: ChatInputCommandInteraction) {
+  await interaction.deferReply({ ephemeral: true });
+  const agents = await getAgents();
+  if (agents.length === 0) {
+    await interaction.editReply("⚠️ Aucun agent disponible côté backend.");
+    return;
+  }
+  await interaction.editReply({
+    content: "💬 Choisis l'agent avec qui discuter :",
+    components: agentPickerComponents(agents, "chat"),
   });
 }
 

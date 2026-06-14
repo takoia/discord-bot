@@ -5,7 +5,7 @@ import {
   type ButtonInteraction,
 } from "discord.js";
 import { backend } from "../backend.ts";
-import { approvalStore, pendingObjective, store } from "../store.ts";
+import { approvalStore, chatBinding, pendingObjective, store } from "../store.ts";
 import { logger } from "../logger.ts";
 import { subscribeJob } from "../jobstream.ts";
 import { decisionEmbed, jobEmbed } from "./embeds.ts";
@@ -13,6 +13,7 @@ import { decisionEmbed, jobEmbed } from "./embeds.ts";
 /**
  * Handles button clicks. customId formats:
  *   - "launch:<agentId>"      — launch the pending /objectif with this agent
+ *   - "chat:<agentId>"        — open a chat thread bound to this agent
  *   - "approve:<approvalId>"  — human-in-the-loop validation
  *   - "reject:<approvalId>"
  */
@@ -23,6 +24,7 @@ export async function handleButton(interaction: ButtonInteraction) {
   logger.info("Button clicked", { action, value, user: interaction.user.tag });
 
   if (action === "launch") return handleLaunch(interaction, value);
+  if (action === "chat") return handleChatStart(interaction, value);
   if ((action !== "approve" && action !== "reject") || !value) return;
   const approvalId = value;
 
@@ -123,4 +125,43 @@ async function handleLaunch(interaction: ButtonInteraction, agentId: string) {
 
   subscribeJob(interaction.client, jobId);
   logger.info("Objective launched", { jobId, agentId, by: interaction.user.tag });
+}
+
+/**
+ * Open a chat with the chosen agent: create a thread off the current channel and
+ * bind it. Falls back to binding the current channel if threads aren't available.
+ */
+async function handleChatStart(interaction: ButtonInteraction, agentId: string) {
+  if (!agentId) return;
+  const comp = interaction.component;
+  const name = ("label" in comp && comp.label) || agentId;
+  const channel = interaction.channel;
+
+  // Try to open a thread (clean, isolated conversation).
+  if (channel && "threads" in channel && typeof channel.threads?.create === "function") {
+    try {
+      const thread = await channel.threads.create({
+        name: `💬 ${name}`.slice(0, 90),
+        autoArchiveDuration: 60,
+      });
+      chatBinding.bind(thread.id, { agentId, name });
+      await thread.send(
+        `💬 **Chat avec ${name}** — écris ton message ici, je te réponds. ` +
+          `(relance \`/chat\` pour un autre agent)`,
+      );
+      await interaction.reply({ content: `✅ Chat ouvert : <#${thread.id}>`, ephemeral: true });
+      logger.info("Chat thread opened", { threadId: thread.id, agentId });
+      return;
+    } catch (err) {
+      logger.warn("Thread creation failed, binding channel instead", { error: String(err) });
+    }
+  }
+
+  // Fallback: bind the current channel.
+  chatBinding.bind(interaction.channelId, { agentId, name });
+  await interaction.reply({
+    content: `✅ Chat activé ici avec **${name}**. Écris un message, je réponds. (\`/objectif\` reste dispo)`,
+    ephemeral: true,
+  });
+  logger.info("Chat bound to channel", { channelId: interaction.channelId, agentId });
 }
