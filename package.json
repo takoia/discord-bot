@@ -1,6 +1,7 @@
 {
   "name": "takoia-discord-bot",
   "version": "0.1.0",
+  "license": "BUSL-1.1",
   "description": "Discord bot for Takoia — conversational interface for autonomous AI agents",
   "type": "module",
   "private": true,
