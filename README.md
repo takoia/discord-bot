@@ -123,3 +123,10 @@ n'est pas prêt** en live.
 ## Stack
 
 Bun + TypeScript (strict) · discord.js v14 · SSE (`fetch` streaming) · zod.
+
+## License
+
+TakoIA discord-bot is licensed under the **Business Source License 1.1** (BSL
+1.1) — see [`LICENSE`](./LICENSE). You may copy, modify and make **non-production**
+use of the code freely. On the **Change Date (2028-06-14)** the license
+automatically converts to the **Apache License, Version 2.0**.
